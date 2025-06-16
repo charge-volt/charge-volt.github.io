@@ -6,7 +6,6 @@ import { openapi } from '@/lib/source';
 export function useMDXComponents(components: MDXComponents): MDXComponents {
   return {
     ...defaultComponents,
-    APIPage: (props) => <APIPage {...openapi.getAPIPageProps(props)} />,
     ...components,
   };
 }
