@@ -12,6 +12,9 @@ async function fetchSwaggerJSON() {
     const MAX_RETRIES = 20;
     const RETRY_DELAY = 2000;
 
+    // Ensure public directory exists
+    await fs.mkdir("./public", { recursive: true });
+
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
             console.log(
@@ -54,45 +57,38 @@ async function fetchSwaggerJSON() {
     return false;
 }
 
-// Fix the document paths in generated files
-async function fixDocumentPaths(dir) {
-    try {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
+// Fix document paths in generated MDX files
+async function fixDocumentPaths() {
+    console.log("Fixing document paths in generated files...");
+    
+    async function processDirectory(dirPath) {
+        const entries = await fs.readdir(dirPath, { withFileTypes: true });
         
         for (const entry of entries) {
-            const fullPath = path.join(dir, entry.name);
+            const fullPath = path.join(dirPath, entry.name);
             
             if (entry.isDirectory()) {
-                await fixDocumentPaths(fullPath);
+                await processDirectory(fullPath);
             } else if (entry.name.endsWith('.mdx')) {
-                try {
-                    let content = await fs.readFile(fullPath, 'utf-8');
-                    
-                    // Replace relative path with absolute path
-                    content = content.replace(
-                        /document=\{"\.\/swagger\.json"\}/g,
-                        'document={"/swagger.json"}'
-                    );
-                    
-                    // Fix frontmatter formatting if needed
-                    if (!content.includes('title: "') && content.includes('title: ')) {
-                        content = content.replace(
-                            /^(---\ntitle: )([^\n]+)(\nfull: true)/m,
-                            '$1"$2"$3'
-                        );
-                    }
-                    
+                let content = await fs.readFile(fullPath, 'utf-8');
+                
+                // Replace the document path to point to public directory correctly
+                const originalContent = content;
+                content = content.replace(
+                    /document=\{"\.\/public\/swagger\.json"\}/g,
+                    'document={"/swagger.json"}'
+                );
+                
+                if (content !== originalContent) {
                     await fs.writeFile(fullPath, content);
-                    console.log(`Fixed: ${fullPath}`);
-                } catch (error) {
-                    console.error(`Error processing ${fullPath}:`, error);
+                    console.log(`Fixed document path in: ${fullPath}`);
                 }
             }
         }
-    } catch (error) {
-        console.log(`Directory ${dir} doesn't exist yet, skipping...`);
-        console.error(error);
     }
+    
+    await processDirectory(out);
+    console.log("Document paths fixed!");
 }
 
 // Clean generated files
@@ -108,32 +104,24 @@ async function main() {
 
     if (!success) {
         console.error(
-            `Failed to fetch Swagger JSON. Make sure the API is running at localhost:8080`,
+            `Failed to fetch Swagger JSON. Make sure the API is running at ${process.env.API_URL}`,
         );
         process.exit(1);
     }
 
     console.log("Generating API documentation...");
-    
-    try {
-        await OpenAPI.generateFiles({
-            input: [swaggerFilePath],
-            output: out,
-            per: "operation",
-            groupBy: "tag",
-        });
-        
-        console.log("API documentation generated successfully!");
-        
-        // Post-process the generated files to fix the document path
-        console.log("Post-processing files for static export...");
-        await fixDocumentPaths(out);
-        console.log("Post-processing completed!");
-        
-    } catch (error) {
-        console.error("Error during generation:", error);
-        process.exit(1);
-    }
+    await OpenAPI.generateFiles({
+        // input files
+        input: [swaggerFilePath],
+        output: out,
+        per: "operation",
+        groupBy: "tag",
+    });
+
+    // Fix the document paths after generation
+    await fixDocumentPaths();
+
+    console.log("API documentation generated successfully!");
 }
 
 // Run the main function
